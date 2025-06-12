@@ -1,0 +1,15 @@
+﻿# Large video files
+output/videos/
+runs/
+*.mp4
+*.avi
+*.mov
+
+# AI model files  
+*.pt
+*.pth
+models/
+
+# Cache files
+__pycache__/
+*.pyc
