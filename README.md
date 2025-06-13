@@ -36,6 +36,8 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 # Mac/Linux  
 source .venv/bin/activate
+#Optional (Jacob had to)
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process
 ```
 
 3. **Install dependencies**
@@ -43,9 +45,9 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-4. **Run R.A.P.T.O.R**
+4. **Run R.A.P.T.O.R setup**
 ```bash
-python src/main.py
+python setup_raptor.py
 ```
 
 ## 📋 Project Structure
@@ -66,42 +68,13 @@ R.A.P.T.O.R/
 └── README.md              # This file
 ```
 
-## 🎮 Usage
-
-### Basic Image Detection
-```python
-from src.main import RaptorDetectionSystem
-
-# Initialize R.A.P.T.O.R
-raptor = RaptorDetectionSystem()
-
-# Process image
-detections = raptor.process_image("path/to/image.jpg")
-
-# Generate report
-raptor.generate_report()
-```
-
-### Video Processing
-```python
-# Process video with GPS mapping
-gps_bounds = {
-    'top_left': {'lat': 36.4074, 'lon': -105.5731},
-    'top_right': {'lat': 36.4074, 'lon': -105.5700},
-    'bottom_left': {'lat': 36.4044, 'lon': -105.5731},
-    'bottom_right': {'lat': 36.4044, 'lon': -105.5700}
-}
-
-raptor = RaptorDetectionSystem(gps_bounds=gps_bounds)
-detections = raptor.process_video("drone_footage.mp4")
-```
-
 ## 🔧 Configuration
 
 ### Supported Object Classes
 - **Personnel**: Person detection and tracking
-- **Vehicles**: Cars, trucks, buses, motorcycles
-- **Wildlife**: Birds, animals (for environmental monitoring)
+- **Vehicles**: Small vehicles, large vehicles, planes, helicopters
+- **Structures**
+
 
 ### GPS Mapping
 Configure GPS bounds for your area of operations in the `gps_bounds` parameter.

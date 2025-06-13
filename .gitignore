@@ -1,11 +1,4 @@
-﻿# Large video files
-output/videos/
-runs/
-*.mp4
-*.avi
-*.mov
-
-# AI model files  
+﻿# AI model files  
 *.pt
 *.pth
 models/
@@ -13,3 +6,12 @@ models/
 # Cache files
 __pycache__/
 *.pyc
+
+# Python virtual environment
+.venv/
+
+# VSCode settings
+.vscode/
+
+# Generated output files
+output/
