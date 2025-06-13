@@ -1,4 +1,4 @@
-# File: src/core_processor.py (V5 - Final with Dual Model Support)
+# File: src/core_processor.py (Updated for Advanced GPS Calculation)
 
 import cv2
 import json
@@ -7,8 +7,10 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
-import numpy as np  # Needed for random colors
-from .gps_converter import SimpleGPSConverter
+import numpy as np
+
+# --- MODIFIED: Import the new AdvancedGPSCalculator ---
+from .advanced_gps_calculator import AdvancedGPSCalculator
 from . import config
 
 try:
@@ -22,15 +24,14 @@ except ImportError:
 
 class VideoStream:
     """
-    A dedicated class to handle video stream reading in a separate thread.
-    This prevents buffer overload and ensures we always get the latest frame.
+    Handles video stream reading in a separate thread to prevent buffer overload.
     """
 
     def __init__(self, src=0):
         self.stream = cv2.VideoCapture(src)
         if not self.stream.isOpened():
             raise IOError(f"Cannot open camera source: {src}")
-        (self.grabbed, self.frame) = self.stream.read()
+        self.grabbed, self.frame = self.stream.read()
         self.stopped = False
 
     def start(self):
@@ -39,7 +40,7 @@ class VideoStream:
 
     def update(self):
         while not self.stopped:
-            (self.grabbed, self.frame) = self.stream.read()
+            self.grabbed, self.frame = self.stream.read()
 
     def read(self):
         return self.frame
@@ -51,44 +52,51 @@ class VideoStream:
 
 class RaptorProcessor:
     """
-    R.A.P.T.O.R's processing engine, with support for multiple, selectable models.
+    R.A.P.T.O.R's processing engine with dynamic GPS calculation.
     """
 
-    def __init__(self, model_path, gps_bounds=None, gui_queue=None):
+    # --- MODIFIED: The __init__ method now accepts drone_telemetry ---
+    def __init__(self, model_path, drone_telemetry=None, gui_queue=None):
         if not YOLO_AVAILABLE:
             raise ImportError("YOLO/Ultralytics is not installed.")
 
         print(f"🧠 Loading R.A.P.T.O.R. model: {model_path}")
         self.model = YOLO(model_path)
-        self.gps_converter = SimpleGPSConverter(gps_bounds) if gps_bounds else None
         self.gui_queue = gui_queue
         self.all_detections = []
         self.processing_active = False
         self.video_stream = None
         self.last_known_detections = []
 
-        # --- DYNAMIC CLASS, COLOR, AND CONFIDENCE LOADING ---
+        # --- NEW: Initialize the AdvancedGPSCalculator if telemetry is provided ---
+        self.telemetry = drone_telemetry
+        if self.telemetry and "fov_deg" in self.telemetry:
+            print("✅ Initializing Advanced GPS Calculator with provided telemetry.")
+            self.gps_calculator = AdvancedGPSCalculator(
+                camera_fov_deg=self.telemetry["fov_deg"]
+            )
+        else:
+            print(
+                "⚠️ No valid telemetry provided. GPS coordinates will not be calculated."
+            )
+            self.gps_calculator = None
+        # --- END OF NEW SECTION ---
+
         # This block intelligently configures the processor based on the loaded model.
         if "raptor_v1" in model_path:
-            # We are using our powerful custom aerial model
             print("   Mode: Custom Aerial Model (R.A.P.T.O.R. v1)")
             self.target_classes = {
                 i: name for i, name in enumerate(config.RAPTOR_MODEL_CLASSES)
             }
             self.colors = config.RAPTOR_CLASS_COLORS
-            # Use a higher confidence for the specialized model to reduce noise
             self.confidence_threshold = 0.5
         else:
-            # We are using the generic ground model (or any other)
             print("   Mode: Default Ground Model (COCO classes)")
-            # Use the model's own built-in class names
             self.target_classes = self.model.names
-            # Generate a unique random color for each COCO class
             self.colors = {
                 name: [int(c) for c in np.random.randint(0, 255, size=3)]
                 for name in self.model.names.values()
             }
-            # Use a slightly higher confidence for the generic model
             self.confidence_threshold = 0.6
 
         print(
@@ -105,7 +113,7 @@ class RaptorProcessor:
     def process_video(self, video_path, output_path=None):
         """Main processing method. Dispatches to file or live processing."""
         self.all_detections = []
-        self.last_known_detections = []  # Reset for the new mission
+        self.last_known_detections = []
         is_live = isinstance(video_path, int)
 
         if is_live:
@@ -116,20 +124,16 @@ class RaptorProcessor:
         return self.all_detections
 
     def _process_live_stream(self, camera_index):
-        """
-        Processes a live camera stream with performance optimizations.
-        """
+        """Processes a live camera stream with performance optimizations."""
         print(f"🎬 Starting LIVE FEED from camera index: {camera_index}")
         try:
             self.video_stream = VideoStream(src=camera_index).start()
         except IOError as e:
-            print(f"❌ FATAL: {e}")
             if self.gui_queue:
                 self.gui_queue.put({"type": "error", "message": str(e)})
             return
 
         time.sleep(2.0)
-
         self.processing_active = True
         frame_number = 0
         PROCESS_EVERY_N_FRAMES = 5
@@ -138,13 +142,14 @@ class RaptorProcessor:
             while self.processing_active:
                 frame = self.video_stream.read()
                 if frame is None:
-                    time.sleep(0.5)
+                    time.sleep(0.1)
                     continue
 
                 if frame_number % PROCESS_EVERY_N_FRAMES == 0:
                     results = self.model(
                         frame, verbose=False, conf=self.confidence_threshold
                     )
+                    # Pass frame shape to parser for calculations
                     self.last_known_detections = self._parse_results(
                         results, frame.shape, frame_number
                     )
@@ -180,12 +185,10 @@ class RaptorProcessor:
             print(f"❌ Error opening video file: {video_path}")
             return
 
-        width, height = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(
-            cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
-        )
-        fps, total_frames = int(cap.get(cv2.CAP_PROP_FPS)), int(
-            cap.get(cv2.CAP_PROP_FRAME_COUNT)
-        )
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fps = int(cap.get(cv2.CAP_PROP_FPS))
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
         out = None
         if output_path:
@@ -201,11 +204,11 @@ class RaptorProcessor:
                 if not ret:
                     break
 
-                annotated_frame = frame.copy()
                 if frame_number % process_every_n_frames == 0:
                     results = self.model(
                         frame, verbose=False, conf=self.confidence_threshold
                     )
+                    # Pass frame shape to parser for calculations
                     self.last_known_detections = self._parse_results(
                         results, frame.shape, frame_number
                     )
@@ -244,10 +247,10 @@ class RaptorProcessor:
                 f"✅ Video file processing complete. Found {len(self.all_detections)} total objects."
             )
 
+    # --- MODIFIED: The _parse_results method now uses the new gps_calculator ---
     def _parse_results(self, results, frame_shape, frame_number):
-        frame_detections = []
-        height, width, _ = frame_shape
         current_batch_detections = []
+        frame_height, frame_width, _ = frame_shape
 
         for result in results:
             if result.boxes is None:
@@ -259,6 +262,7 @@ class RaptorProcessor:
                 if class_id in self.target_classes:
                     x1, y1, x2, y2 = box.xyxy[0].tolist()
                     center_x, center_y = (x1 + x2) / 2, (y1 + y2) / 2
+
                     detection = {
                         "id": f"{frame_number}-{len(self.all_detections) + len(current_batch_detections)}",
                         "frame": frame_number,
@@ -267,18 +271,26 @@ class RaptorProcessor:
                         "bbox": [x1, y1, x2, y2],
                         "center_pixel": {"x": center_x, "y": center_y},
                         "timestamp": datetime.now().isoformat(),
+                        "gps": None,  # Default to None
                     }
-                    if self.gps_converter:
-                        lat, lon = self.gps_converter.pixel_to_gps(
-                            center_x, center_y, width, height
+
+                    # Use the advanced calculator if it's available
+                    if self.gps_calculator:
+                        gps_coords = self.gps_calculator.calculate_gps(
+                            drone_telemetry=self.telemetry,
+                            bbox_center_px=(center_x, center_y),
+                            frame_dims_px=(frame_width, frame_height),
                         )
-                        detection["gps"] = {"lat": lat, "lon": lon}
+                        detection["gps"] = gps_coords
+
                     current_batch_detections.append(detection)
 
         self.all_detections.extend(current_batch_detections)
         return current_batch_detections
 
     def draw_detections(self, frame, detections):
+        """Draws bounding boxes and labels on the frame."""
+        # This method remains unchanged, but I've included it for completeness.
         MAX_BOXES_TO_DRAW = 50
         top_detections = sorted(
             detections, key=lambda d: d["confidence"], reverse=True
@@ -286,14 +298,17 @@ class RaptorProcessor:
 
         for det in top_detections:
             x1, y1, x2, y2 = [int(c) for c in det["bbox"]]
-            color = self.colors.get(
-                det["class"], (255, 255, 255)
-            )  # Default to white if class color not found
+            color = self.colors.get(det["class"], (255, 255, 255))
             label = f"{det['class']}: {det['confidence']:.2f}"
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
             cv2.putText(
                 frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2
             )
+
+            # Optionally, draw a small circle at the calculated center point
+            center_x = int(det["center_pixel"]["x"])
+            center_y = int(det["center_pixel"]["y"])
+            cv2.circle(frame, (center_x, center_y), 5, color, -1)
 
         if len(detections) > MAX_BOXES_TO_DRAW:
             count_text = f"Detections: {len(detections)} (Top {MAX_BOXES_TO_DRAW})"
@@ -322,6 +337,7 @@ class RaptorProcessor:
         return frame
 
     def save_detections_to_json(self, output_path):
+        """Saves all collected detections to a JSON file."""
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, "w") as f:
             json.dump(self.all_detections, f, indent=2)

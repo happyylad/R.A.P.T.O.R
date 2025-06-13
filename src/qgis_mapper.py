@@ -40,6 +40,11 @@ except ImportError:
 class TacticalQGISMapper:
     def __init__(self):
         """R.A.P.T.O.R QGIS Integration and Mapping System"""
+        # --- THIS IS THE FIX ---
+        # The global declaration must come BEFORE any use of the variable.
+        global QGIS_AVAILABLE
+        # -----------------------
+
         self.detections = []
         self.layers = {}
 
@@ -58,7 +63,7 @@ class TacticalQGISMapper:
                 print("✅ QGIS initialized successfully!")
             except Exception as e:
                 print(f"⚠️ QGIS initialization failed: {e}")
-                QGIS_AVAILABLE = False
+                QGIS_AVAILABLE = False  # This line is now safe.
 
         # Class styling for different object types
         self.class_styles = {
