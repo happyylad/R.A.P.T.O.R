@@ -3,6 +3,10 @@
 
 Advanced AI-powered object detection system for tactical surveillance and reconnaissance operations.
 
+[![License: CC BY 4.0](https://licensebuttons.net/l/by/4.0/88x31.png)](https://creativecommons.org/licenses/by/4.0/)
+
+---
+
 ## 🎯 Overview
 
 R.A.P.T.O.R is a cutting-edge tactical detection system that combines YOLO object detection with GPS mapping capabilities to provide real-time intelligence from aerial footage. Perfect for military, law enforcement, search and rescue, and security applications.
@@ -11,7 +15,7 @@ R.A.P.T.O.R is a cutting-edge tactical detection system that combines YOLO objec
 - **Real-time Detection**: YOLO-based object recognition at >15 FPS
 - **GPS Mapping**: Automatic conversion of detections to GPS coordinates  
 - **Multi-format Output**: JSON, CSV, GeoJSON for integration with other systems
-- **Tactical Focus**: Optimized for vehicles, personnel, and equipment detection
+- **Tactical Focus**: Optimized for vehicles, personnel, and structure detection
 - **Modular Design**: Easy to extend and customize for specific missions
 
 ## 🚀 Quick Start
@@ -64,6 +68,7 @@ R.A.P.T.O.R/
 │   └── maps/              # Generated maps
 ├── requirements.txt        # Python dependencies
 └── README.md              # This file
+└── LICENSE.md              # License file
 ```
 
 ## 🔧 Configuration
@@ -179,13 +184,17 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+The documentation, images, and other creative content in this repository are licensed under the **Creative Commons Attribution 4.0 International License**. See the LICENSE file for details. This license may differ from the license of the datasets used for training.
+[![License: CC BY 4.0](https://licensebuttons.net/l/by/4.0/88x31.png)](https://creativecommons.org/licenses/by/4.0/)
 
 ## 🙏 Acknowledgments
 
-- **YOLO**: Ultralytics for the detection model
+- **YOLOv8**: Ultralytics for the detection model
 - **OpenCV**: Computer vision processing
-- **Contributors**: All team members working on R.A.P.T.O.R
+- **QGIS**: For integration with software
+- **DOTA**: Dataset R.A.P.T.O.R v1 was trained on
+- **VisDrone**: Dataset R.A.P.T.O.R v1 was trained on
+- **Contributors**: Derek Brown, Jacob Fulcher, Callen Shouse
 ---
 
 **R.A.P.T.O.R - Providing superior tactical intelligence through advanced AI detection** 🦅
