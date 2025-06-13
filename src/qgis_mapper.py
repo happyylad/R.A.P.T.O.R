@@ -1,18 +1,34 @@
-# R.A.P.T.O.R QGIS Mapper Module
+# R.A.P.T.O.R QGIS Mapper Module - FIXED VERSION
 # File: src/qgis_mapper.py
+
+import sys
+import os
+
+# Add QGIS Python paths for Windows (if QGIS is installed)
+qgis_path = r"C:\Program Files\QGIS 3.40.7\apps\qgis\python"
+qgis_plugins = r"C:\Program Files\QGIS 3.40.7\apps\qgis\python\plugins"
+
+if os.path.exists(qgis_path):
+    sys.path.insert(0, qgis_path)
+    sys.path.insert(0, qgis_plugins)
+    
+    # Set QGIS environment variables
+    os.environ['QGIS_PREFIX_PATH'] = r"C:\Program Files\QGIS 3.40.7"
+    os.environ['PATH'] = r"C:\Program Files\QGIS 3.40.7\bin" + os.pathsep + os.environ['PATH']
+    os.environ['QT_PLUGIN_PATH'] = r"C:\Program Files\QGIS 3.40.7\apps\qgis\qtplugins"
 
 import json
 import pandas as pd
-import os
 from datetime import datetime
 from pathlib import Path
 
-# Try to import QGIS modules (may need adjustment based on installation)
+# Try to import QGIS modules
 try:
     from qgis.core import *
     from qgis.analysis import QgsNativeAlgorithms
     import processing
     QGIS_AVAILABLE = True
+    print("✅ QGIS modules loaded successfully!")
 except ImportError:
     print("⚠️ QGIS not available, using standalone mapping")
     QGIS_AVAILABLE = False
@@ -24,27 +40,32 @@ class TacticalQGISMapper:
         self.layers = {}
         
         if QGIS_AVAILABLE:
-            # Initialize QGIS application
-            QgsApplication.setPrefixPath("/usr", True)
-            self.qgs = QgsApplication([], False)
-            self.qgs.initQgis()
-            
-            self.project = QgsProject.instance()
-            self.crs = QgsCoordinateReferenceSystem("EPSG:4326")  # WGS84
-            
-            # Add processing algorithms
-            QgsApplication.processingRegistry().addProvider(QgsNativeAlgorithms())
+            try:
+                # Initialize QGIS application
+                QgsApplication.setPrefixPath(r"C:\Program Files\QGIS 3.40.7", True)
+                self.qgs = QgsApplication([], False)
+                self.qgs.initQgis()
+                
+                self.project = QgsProject.instance()
+                self.crs = QgsCoordinateReferenceSystem("EPSG:4326")  # WGS84
+                
+                # Add processing algorithms
+                QgsApplication.processingRegistry().addProvider(QgsNativeAlgorithms())
+                print("✅ QGIS initialized successfully!")
+            except Exception as e:
+                print(f"⚠️ QGIS initialization failed: {e}")
+                QGIS_AVAILABLE = False
         
         # Class styling for different object types
         self.class_styles = {
-            'person': {'color': 'green', 'size': 8, 'symbol': 'circle'},
-            'car': {'color': 'blue', 'size': 6, 'symbol': 'square'},
-            'truck': {'color': 'red', 'size': 10, 'symbol': 'triangle'},
-            'bus': {'color': 'orange', 'size': 12, 'symbol': 'diamond'},
-            'motorcycle': {'color': 'purple', 'size': 5, 'symbol': 'star'},
-            'bird': {'color': 'yellow', 'size': 4, 'symbol': 'circle'},
-            'cat': {'color': 'pink', 'size': 4, 'symbol': 'circle'},
-            'dog': {'color': 'brown', 'size': 5, 'symbol': 'circle'}
+            'person': {'color': '#00ff41', 'size': 8, 'symbol': 'circle'},
+            'car': {'color': '#0080ff', 'size': 6, 'symbol': 'square'},
+            'truck': {'color': '#ff4444', 'size': 10, 'symbol': 'triangle'},
+            'bus': {'color': '#ffaa00', 'size': 12, 'symbol': 'diamond'},
+            'motorcycle': {'color': '#ff00ff', 'size': 5, 'symbol': 'star'},
+            'bird': {'color': '#ffff00', 'size': 4, 'symbol': 'circle'},
+            'cat': {'color': '#ff69b4', 'size': 4, 'symbol': 'circle'},
+            'dog': {'color': '#8b4513', 'size': 5, 'symbol': 'circle'}
         }
     
     def load_detections(self, json_file):
@@ -67,7 +88,7 @@ class TacticalQGISMapper:
         
         if not self.detections:
             print("⚠️ No detections to export")
-            return
+            return []
         
         # Group detections by class
         df = pd.DataFrame(self.detections)
@@ -153,7 +174,7 @@ class TacticalQGISMapper:
                 # Flatten GPS coordinates for CSV export
                 export_data = []
                 for _, detection in detections_df.iterrows():
-                    row = detection.copy()
+                    row = detection.to_dict()
                     if 'gps' in row and row['gps']:
                         row['latitude'] = row['gps']['lat']
                         row['longitude'] = row['gps']['lon']
@@ -325,8 +346,6 @@ class TacticalQGISMapper:
         output_dir = Path('output/maps')
         output_dir.mkdir(parents=True, exist_ok=True)
         
-        df = pd.DataFrame(self.detections)
-        
         # Create GeoJSON
         self.create_geojson(str(output_dir / 'raptor_tactical_map.geojson'))
         
@@ -405,30 +424,47 @@ class TacticalQGISMapper:
             print(f"❌ CSV creation failed: {e}")
     
     def create_web_map(self, output_file):
-        """Create interactive web map using Leaflet"""
+        """Create interactive web map using Leaflet - FIXED VERSION"""
         if not self.detections:
+            print("⚠️ No detections to create web map")
             return
             
-        df = pd.DataFrame(self.detections)
-        
-        # Calculate map center
-        center_lat = df.apply(lambda x: x['gps']['lat'], axis=1).mean()
-        center_lon = df.apply(lambda x: x['gps']['lon'], axis=1).mean()
-        
-        # Prepare detection data for JavaScript
-        js_detections = []
-        for _, detection in df.iterrows():
-            js_detections.append({
-                'lat': detection['gps']['lat'],
-                'lon': detection['gps']['lon'], 
-                'class': detection['class'],
-                'confidence': detection['confidence'],
-                'timestamp': detection['timestamp'],
-                'frame': detection.get('frame', 0)
-            })
-        
-        # Create HTML content
-        html_content = f"""<!DOCTYPE html>
+        try:
+            # Calculate map center - FIXED to handle GPS data properly
+            lats = [d['gps']['lat'] for d in self.detections if 'gps' in d and d['gps']]
+            lons = [d['gps']['lon'] for d in self.detections if 'gps' in d and d['gps']]
+            
+            if not lats or not lons:
+                print("❌ No GPS coordinates found in detections")
+                return
+                
+            center_lat = sum(lats) / len(lats)
+            center_lon = sum(lons) / len(lons)
+            
+            # Prepare detection data for JavaScript
+            js_detections = []
+            for detection in self.detections:
+                if 'gps' in detection and detection['gps']:
+                    js_detections.append({
+                        'lat': detection['gps']['lat'],
+                        'lon': detection['gps']['lon'], 
+                        'class': detection['class'],
+                        'confidence': detection['confidence'],
+                        'timestamp': detection['timestamp'],
+                        'frame': detection.get('frame', 0)
+                    })
+            
+            # Count detections by class for stats
+            class_counts = {}
+            for d in self.detections:
+                cls = d['class']
+                class_counts[cls] = class_counts.get(cls, 0) + 1
+            
+            # Calculate average confidence
+            avg_confidence = sum(d['confidence'] for d in self.detections) / len(self.detections)
+            
+            # Create HTML content
+            html_content = f"""<!DOCTYPE html>
 <html>
 <head>
     <title>R.A.P.T.O.R Tactical Object Detection Map</title>
@@ -524,24 +560,26 @@ class TacticalQGISMapper:
             <strong>Total Objects:</strong> {len(self.detections)}
         </div>
         <div class="stat-item">
-            <strong>Object Types:</strong> {len(df['class'].unique())}
+            <strong>Object Types:</strong> {len(class_counts)}
         </div>
         <div class="stat-item">
-            <strong>Avg Confidence:</strong> {df['confidence'].mean():.1%}
+            <strong>Avg Confidence:</strong> {avg_confidence:.1%}
         </div>
     </div>
     
     <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
     <script>
+        // Initialize map
         var map = L.map('map').setView([{center_lat}, {center_lon}], 15);
         
-        // Dark tile layer for tactical look
+        // Add dark tile layer for tactical look
         L.tileLayer('https://{{s}}.basemaps.cartocdn.com/dark_all/{{z}}/{{x}}/{{y}}{{r}}.png', {{
             attribution: '© CartoDB © OpenStreetMap contributors',
             subdomains: 'abcd',
             maxZoom: 19
         }}).addTo(map);
         
+        // Define colors for each class
         var classColors = {{
             'person': '#00ff41',
             'car': '#0080ff', 
@@ -553,11 +591,13 @@ class TacticalQGISMapper:
             'dog': '#8b4513'
         }};
         
+        // Detection data
         var detections = {json.dumps(js_detections)};
         
         // Create marker groups for each class
         var markerGroups = {{}};
         
+        // Add markers for each detection
         detections.forEach(function(detection) {{
             var color = classColors[detection.class] || '#ffffff';
             var radius = Math.max(5, detection.confidence * 15);
@@ -571,15 +611,17 @@ class TacticalQGISMapper:
             }});
             
             // Create popup content
-            var popupContent = `
-                <div style="color: black; font-weight: bold;">
-                    <h4 style="margin: 0; color: ${{color}};">🎯 ${{detection.class.toUpperCase()}}</h4>
-                    <p><strong>Confidence:</strong> ${{(detection.confidence * 100).toFixed(1)}}%</p>
-                    <p><strong>GPS:</strong> ${{detection.lat.toFixed(6)}}, ${{detection.lon.toFixed(6)}}</p>
-                    <p><strong>Time:</strong> ${{new Date(detection.timestamp).toLocaleString()}}</p>
-                    ${{detection.frame ? `<p><strong>Frame:</strong> ${{detection.frame}}</p>` : ''}}
-                </div>
-            `;
+            var popupContent = '<div style="color: black; font-weight: bold;">' +
+                '<h4 style="margin: 0; color: ' + color + ';">🎯 ' + detection.class.toUpperCase() + '</h4>' +
+                '<p><strong>Confidence:</strong> ' + (detection.confidence * 100).toFixed(1) + '%</p>' +
+                '<p><strong>GPS:</strong> ' + detection.lat.toFixed(6) + ', ' + detection.lon.toFixed(6) + '</p>' +
+                '<p><strong>Time:</strong> ' + new Date(detection.timestamp).toLocaleString() + '</p>';
+            
+            if (detection.frame) {{
+                popupContent += '<p><strong>Frame:</strong> ' + detection.frame + '</p>';
+            }}
+            
+            popupContent += '</div>';
             
             marker.bindPopup(popupContent);
             
@@ -626,19 +668,22 @@ class TacticalQGISMapper:
         
         // Fit map to show all markers
         if (detections.length > 0) {{
-            var group = new L.featureGroup(Object.values(markerGroups).map(group => group.getLayers()).flat());
+            var group = new L.featureGroup(Object.values(markerGroups).map(function(g) {{ return g.getLayers(); }}).flat());
             map.fitBounds(group.getBounds().pad(0.1));
         }}
     </script>
 </body>
 </html>"""
-        
-        try:
-            with open(output_file, 'w') as f:
+            
+            # Write HTML file
+            with open(output_file, 'w', encoding='utf-8') as f:
                 f.write(html_content)
             print(f"✅ Created interactive web map: {output_file}")
+            
         except Exception as e:
             print(f"❌ Web map creation failed: {e}")
+            import traceback
+            traceback.print_exc()
 
 
 # Example usage
