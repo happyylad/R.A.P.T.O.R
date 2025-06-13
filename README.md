@@ -36,8 +36,6 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 # Mac/Linux  
 source .venv/bin/activate
-#Optional (Jacob had to)
-Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope Process
 ```
 
 3. **Install dependencies**
@@ -160,13 +158,6 @@ black src/
 - Critical infrastructure protection
 - Emergency response coordination
 
-## 📚 Documentation
-
-- [Installation Guide](docs/INSTALLATION.md)
-- [User Manual](docs/USER_GUIDE.md)
-- [API Reference](docs/API_REFERENCE.md)
-- [Development Guide](docs/DEVELOPMENT.md)
-
 ## 🐛 Troubleshooting
 
 ### Common Issues
@@ -195,13 +186,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - **YOLO**: Ultralytics for the detection model
 - **OpenCV**: Computer vision processing
 - **Contributors**: All team members working on R.A.P.T.O.R
-
-## 📞 Contact
-
-For questions, issues, or contributions:
-- **GitHub Issues**: [Report bugs or request features](https://github.com/happyylad/R.A.P.T.O.R/issues)
-- **Team Lead**: [Your contact information]
-
 ---
 
 **R.A.P.T.O.R - Providing superior tactical intelligence through advanced AI detection** 🦅

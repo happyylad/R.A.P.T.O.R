@@ -22,7 +22,7 @@ sys.path.append(str(Path(__file__).parent))
 # Force enable all modules since we know they work
 VIDEO_PROCESSOR_AVAILABLE = True
 
-from video_processor import VideoTacticalProcessor
+from core_processor import RaptorProcessor
 from qgis_mapper import TacticalQGISMapper
 from performance_analyzer import PerformanceAnalyzer
 from test_suite import RaptorTestSuite
@@ -192,6 +192,10 @@ class RaptorDashboard:
         ttk.Button(file_frame, text="📁 BROWSE VIDEO", 
                   command=self.browse_file,
                   style='Tactical.TButton').pack(side=tk.LEFT, padx=(0, 10))
+        
+        ttk.Button(file_frame, text="📷 START LIVE FEED",
+              command=self.start_live_feed,
+              style='Tactical.TButton').pack(side=tk.LEFT, padx=(0, 10))
         
         ttk.Button(file_frame, text="▶️ START MISSION", 
                   command=self.start_processing,
@@ -403,12 +407,42 @@ LIVE FEATURES:
         threading.Thread(target=self.process_video_thread, 
                         args=(self.file_path.get(), bounds), 
                         daemon=True).start()
-    
+
+    def start_live_feed(self):
+        """Start a mission using the live webcam feed."""
+        if self.is_processing:
+            messagebox.showwarning("Mission Warning", "Processing mission already in progress.")
+            return
+
+        self.is_processing = True
+        self.progress.start()
+        self.status_var.set("📷 LIVE FEED ACTIVE - REAL-TIME TACTICAL ANALYSIS")
+        self.video_label.config(text="📷 INITIALIZING LIVE FEED...", fg='#ffaa00')
+        self.update_stats_display("🚀 LIVE MISSION INITIATED\n\nReal-time object detection from webcam...\n")
+
+        # Start live processing in a separate thread
+        threading.Thread(target=self.process_live_thread, daemon=True).start()
+
+    def process_live_thread(self):
+        """Process the live feed in a separate thread."""
+        try:
+            # Initialize processor for live feed.
+            self.processor = RaptorProcessor(gps_bounds=None, gui_queue=self.video_queue)
+            
+            # Process the live stream (camera 0). This will loop until stop() is called.
+            detections = self.processor.process_video(video_path=0)
+            
+            # This part will be reached only after stop_processing is called.
+            self.root.after(0, self.processing_complete, detections)
+            
+        except Exception as e:
+            self.root.after(0, self.processing_error, str(e))
+
     def process_video_thread(self, video_path, bounds):
         """Process video in separate thread with live display"""
         try:
             # Initialize processor
-            self.processor = EnhancedVideoProcessor(gps_bounds=bounds, gui_queue=self.video_queue)
+            self.processor = RaptorProcessor(gps_bounds=bounds, gui_queue=self.video_queue)
             
             # Create output video path
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -596,18 +630,23 @@ LIVE FEATURES:
         messagebox.showerror("Mission Failed", f"Processing failed with error:\n{error_msg}")
     
     def stop_processing(self):
-        """Stop processing mission"""
-        if self.is_processing:
-            self.is_processing = False
-            self.video_playback_active = False
-            self.progress.stop()
-            self.status_var.set("⏹️ MISSION ABORTED BY OPERATOR")
-            self.update_stats_display("\n⏹️ MISSION ABORTED\n")
-            
-            self.video_label.config(text="⏹️ MISSION ABORTED\n\nSelect new target\nand start mission", 
-                                   fg='#ffaa00')
-        else:
+        """Stop any active processing mission (file or live)."""
+        if not self.is_processing:
             messagebox.showinfo("Status", "No active mission to abort.")
+            return
+
+        # This is the key change: we signal the processor to stop its loop.
+        if self.processor:
+            self.processor.stop()
+
+        self.is_processing = False
+        self.video_playback_active = False # Also stop any playback
+        self.progress.stop()
+        self.status_var.set("⏹️ MISSION ABORTED BY OPERATOR")
+        self.update_stats_display("\n⏹️ MISSION ABORTED\n")
+
+        self.video_label.config(text="⏹️ MISSION ABORTED\n\nSelect new target\nand start mission",
+                               fg='#ffaa00')
     
     def update_stats_display(self, new_text):
         """Update the statistics display"""
@@ -899,208 +938,6 @@ LIVE FEATURES:
                 self.root.destroy()
         else:
             self.root.destroy()
-
-
-class EnhancedVideoProcessor:
-    """Enhanced video processor with live GUI updates"""
-    
-    def __init__(self, gps_bounds=None, gui_queue=None):
-        self.gps_bounds = gps_bounds
-        self.gui_queue = gui_queue
-        self.all_detections = []
-        
-        # Initialize YOLO
-        try:
-            from ultralytics import YOLO
-            self.model = YOLO('yolov8n.pt')
-            print("✅ YOLO model loaded for live processing")
-        except Exception as e:
-            print(f"❌ YOLO loading failed: {e}")
-            raise
-        
-        # Target classes
-        self.target_classes = {
-            0: 'person',
-            2: 'car',
-            3: 'motorcycle',
-            5: 'bus',
-            7: 'truck',
-            14: 'bird',
-            15: 'cat',
-            16: 'dog'
-        }
-        
-        # Colors for live display
-        self.colors = {
-            'person': (0, 255, 0),    # Green
-            'car': (255, 0, 0),       # Blue  
-            'truck': (0, 0, 255),     # Red
-            'bus': (255, 255, 0),     # Cyan
-            'motorcycle': (255, 0, 255), # Magenta
-            'bird': (0, 255, 255),    # Yellow
-            'cat': (128, 0, 128),     # Purple
-            'dog': (255, 165, 0)      # Orange
-        }
-    
-    def process_video_live(self, video_path, output_path, process_every_n_frames=3):
-        """Process video with live GUI updates"""
-        cap = cv2.VideoCapture(video_path)
-        
-        # Get video properties
-        fps = int(cap.get(cv2.CAP_PROP_FPS))
-        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        
-        # Setup video writer
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-        
-        frame_number = 0
-        
-        try:
-            while True:
-                ret, frame = cap.read()
-                if not ret:
-                    break
-                
-                # Process every nth frame
-                if frame_number % process_every_n_frames == 0:
-                    detections = self.process_frame_live(frame, frame_number)
-                    
-                    # Draw detections on frame
-                    annotated_frame = self.draw_detections_live(frame.copy(), detections)
-                    
-                    # Send to GUI queue
-                    if self.gui_queue:
-                        try:
-                            self.gui_queue.put({
-                                'type': 'frame',
-                                'frame': annotated_frame,
-                                'detections': detections,
-                                'frame_num': frame_number
-                            })
-                        except:
-                            pass  # Queue might be full
-                    
-                    # Progress update
-                    if frame_number % (process_every_n_frames * 30) == 0:
-                        progress = (frame_number / total_frames) * 100
-                        message = f"🎯 Processing: {progress:.1f}% - Found {len(self.all_detections)} objects"
-                        
-                        if self.gui_queue:
-                            try:
-                                self.gui_queue.put({
-                                    'type': 'progress',
-                                    'message': message
-                                })
-                            except:
-                                pass
-                else:
-                    annotated_frame = frame
-                
-                # Write to output video
-                out.write(annotated_frame)
-                frame_number += 1
-                
-        except Exception as e:
-            print(f"Live processing error: {e}")
-        finally:
-            cap.release()
-            out.release()
-        
-        print(f"✅ Live processing complete: {len(self.all_detections)} detections")
-        return self.all_detections
-    
-    def process_frame_live(self, frame, frame_number):
-        """Process single frame with live updates"""
-        try:
-            results = self.model(frame, verbose=False)
-            frame_detections = []
-            
-            height, width = frame.shape[:2]
-            
-            for result in results:
-                boxes = result.boxes
-                if boxes is not None:
-                    for box in boxes:
-                        class_id = int(box.cls.item())
-                        confidence = box.conf.item()
-                        
-                        if class_id in self.target_classes and confidence > 0.5:
-                            x1, y1, x2, y2 = box.xyxy[0].tolist()
-                            center_x = (x1 + x2) / 2
-                            center_y = (y1 + y2) / 2
-                            
-                            detection = {
-                                'id': len(self.all_detections) + len(frame_detections),
-                                'frame': frame_number,
-                                'class': self.target_classes[class_id],
-                                'confidence': confidence,
-                                'bbox': [x1, y1, x2, y2],
-                                'center': [center_x, center_y],
-                                'timestamp': datetime.now().isoformat()
-                            }
-                            
-                            # Add GPS if available
-                            if self.gps_bounds:
-                                lat, lon = self.convert_pixel_to_gps(center_x, center_y, width, height)
-                                detection['gps'] = {'lat': lat, 'lon': lon}
-                            
-                            frame_detections.append(detection)
-                            self.all_detections.append(detection)
-            
-            return frame_detections
-            
-        except Exception as e:
-            print(f"Frame processing error: {e}")
-            return []
-    
-    def draw_detections_live(self, frame, detections):
-        """Draw detections on frame for live display"""
-        for detection in detections:
-            x1, y1, x2, y2 = [int(x) for x in detection['bbox']]
-            color = self.colors.get(detection['class'], (255, 255, 255))
-            
-            # Draw bounding box
-            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
-            
-            # Draw label with background
-            label = f"{detection['class']}: {detection['confidence']:.2f}"
-            label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
-            
-            # Background for text
-            cv2.rectangle(frame, (x1, y1-30), (x1 + label_size[0], y1), color, -1)
-            cv2.putText(frame, label, (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
-        
-        # Add R.A.P.T.O.R watermark
-        cv2.putText(frame, "🦅 R.A.P.T.O.R LIVE", (10, 30), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 65), 2)
-        
-        # Detection count
-        cv2.putText(frame, f"Objects: {len(detections)}", 
-                   (10, frame.shape[0] - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 65), 2)
-        
-        return frame
-    
-    def convert_pixel_to_gps(self, pixel_x, pixel_y, image_width, image_height):
-        """Convert pixel coordinates to GPS coordinates"""
-        if not self.gps_bounds:
-            return None, None
-        
-        # Simple conversion (would use proper GPS converter in production)
-        norm_x = pixel_x / image_width
-        norm_y = pixel_y / image_height
-        
-        # Basic interpolation
-        lat_range = self.gps_bounds['top_left']['lat'] - self.gps_bounds['bottom_left']['lat']
-        lon_range = self.gps_bounds['top_right']['lon'] - self.gps_bounds['top_left']['lon']
-        
-        lat = self.gps_bounds['top_left']['lat'] - (norm_y * lat_range)
-        lon = self.gps_bounds['top_left']['lon'] + (norm_x * lon_range)
-        
-        return lat, lon
-
 
 def main():
     """Main function to launch R.A.P.T.O.R dashboard"""
