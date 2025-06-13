@@ -1,4 +1,4 @@
-# File: src/core_processor.py
+# File: src/core_processor.py (Updated Version)
 
 import cv2
 import json
@@ -6,6 +6,7 @@ import os
 from datetime import datetime
 from pathlib import Path
 from gps_converter import SimpleGPSConverter
+from . import config  # <-- Import our new config file
 
 try:
     from ultralytics import YOLO
@@ -22,40 +23,32 @@ class RaptorProcessor:
     Combines object detection, GPS conversion, and optional live GUI updates.
     """
 
-    def __init__(self, model_path="yolov8n.pt", gps_bounds=None, gui_queue=None):
+    # <-- The default model_path now points to our custom model.
+    def __init__(
+        self, model_path="models/raptor_v1.pt", gps_bounds=None, gui_queue=None
+    ):
         if not YOLO_AVAILABLE:
             raise ImportError(
                 "YOLO/Ultralytics is not installed. Cannot initialize RaptorProcessor."
             )
 
+        print(f"🧠 Loading R.A.P.T.O.R. model: {model_path}")
         self.model = YOLO(model_path)
         self.gps_converter = SimpleGPSConverter(gps_bounds) if gps_bounds else None
         self.gui_queue = gui_queue  # For sending live updates to a GUI
         self.all_detections = []
+        self.processing_active = False  # For stopping loops gracefully
 
-        # Consolidated from all previous processor classes
+        # <-- Class information is now loaded dynamically from the config file.
+        # This replaces the old hardcoded COCO classes.
         self.target_classes = {
-            0: "person",
-            2: "car",
-            3: "motorcycle",
-            5: "bus",
-            7: "truck",
-            14: "bird",
-            15: "cat",
-            16: "dog",
+            i: name for i, name in enumerate(config.RAPTOR_MODEL_CLASSES)
         }
-        self.colors = {
-            "person": (0, 255, 0),
-            "car": (255, 0, 0),
-            "truck": (0, 0, 255),
-            "bus": (255, 255, 0),
-            "motorcycle": (255, 0, 255),
-            "bird": (0, 255, 255),
-            "cat": (128, 0, 128),
-            "dog": (255, 165, 0),
-        }
+        self.colors = config.RAPTOR_CLASS_COLORS
 
-        print("✅ RaptorProcessor Initialized.")
+        print(
+            f"✅ RaptorProcessor Initialized with {len(self.target_classes)} custom classes."
+        )
 
     def stop(self):
         """Signals the processing loop to terminate."""
@@ -65,7 +58,6 @@ class RaptorProcessor:
     def process_image(self, image_path, save_output=True):
         """
         Process a single image for tactical objects.
-        (Logic migrated from main.py's RaptorDetectionSystem)
         """
         print(f"🔍 Processing Image: {image_path}")
         img = cv2.imread(image_path)
@@ -107,13 +99,13 @@ class RaptorProcessor:
             print(f"❌ Error opening video source: {video_path}")
             return []
 
-        # Get video properties (and handle live stream case)
+        # Get video properties
         width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         fps = int(cap.get(cv2.CAP_PROP_FPS))
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) if not is_live else -1
 
-        # Setup video writer (only for files)
+        # Setup video writer
         out = None
         if output_path and not is_live:
             Path(output_path).parent.mkdir(parents=True, exist_ok=True)
@@ -123,12 +115,12 @@ class RaptorProcessor:
         self.processing_active = True
         frame_number = 0
         try:
-            while self.processing_active:  # Loop is now controlled by this flag
+            while self.processing_active:
                 ret, frame = cap.read()
                 if not ret:
                     if not is_live:
                         print("🏁 End of video file.")
-                    break  # Exit loop if video file ends or camera disconnects
+                    break
 
                 annotated_frame = frame.copy()
                 if frame_number % process_every_n_frames == 0:
@@ -136,7 +128,6 @@ class RaptorProcessor:
                     detections = self._parse_results(results, frame.shape, frame_number)
                     annotated_frame = self.draw_detections(frame, detections)
 
-                    # Live GUI Update Logic
                     if self.gui_queue:
                         self.gui_queue.put(
                             {
@@ -148,6 +139,7 @@ class RaptorProcessor:
                         )
                         if (
                             not is_live
+                            and total_frames > 0
                             and frame_number % (process_every_n_frames * 10) == 0
                         ):
                             progress = (frame_number / total_frames) * 100
@@ -163,7 +155,7 @@ class RaptorProcessor:
 
                 frame_number += 1
         finally:
-            self.processing_active = False  # Ensure flag is reset on exit
+            self.processing_active = False
             cap.release()
             if out:
                 out.release()
@@ -185,6 +177,7 @@ class RaptorProcessor:
                 class_id = int(box.cls.item())
                 confidence = box.conf.item()
 
+                # This `if` statement now correctly checks against our 7 custom classes
                 if class_id in self.target_classes and confidence > 0.5:
                     x1, y1, x2, y2 = box.xyxy[0].tolist()
                     center_x, center_y = (x1 + x2) / 2, (y1 + y2) / 2
