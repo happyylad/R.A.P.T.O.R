@@ -52,6 +52,12 @@ pip install -r requirements.txt
 python setup_raptor.py
 ```
 
+4. **Run R.A.P.T.O.R**
+```bash
+python -m src.dashboard
+```
+
+
 ## 📋 Project Structure
 
 ```

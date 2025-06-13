@@ -22,10 +22,11 @@ sys.path.append(str(Path(__file__).parent))
 # Force enable all modules since we know they work
 VIDEO_PROCESSOR_AVAILABLE = True
 
-from core_processor import RaptorProcessor
-from qgis_mapper import TacticalQGISMapper
-from performance_analyzer import PerformanceAnalyzer
-from test_suite import RaptorTestSuite
+from .core_processor import RaptorProcessor
+from .qgis_mapper import TacticalQGISMapper
+from .performance_analyzer import PerformanceAnalyzer
+from .test_suite import RaptorTestSuite
+from . import config
 
 
 class RaptorDashboard:
@@ -164,21 +165,22 @@ class RaptorDashboard:
         )
         control_frame.pack(fill=tk.X, pady=(0, 10))
 
+        # --- Top Row: GPS and Model Selection ---
+        top_row_frame = tk.Frame(control_frame, bg="#2a2a2a")
+        top_row_frame.pack(fill=tk.X, pady=(0, 10))
+
         # GPS Configuration
         gps_frame = tk.LabelFrame(
-            control_frame,
+            top_row_frame,
             text="GPS BOUNDS",
             bg="#2a2a2a",
             fg="#00ff41",
             font=("Arial", 10, "bold"),
         )
-        gps_frame.pack(fill=tk.X, pady=(0, 10))
-
-        # GPS coordinate inputs
+        gps_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
+        # ... (Your existing GPS coordinate input code goes here, unchanged) ...
         coord_frame = tk.Frame(gps_frame, bg="#2a2a2a")
         coord_frame.pack(fill=tk.X, padx=5, pady=5)
-
-        # Top-left coordinates
         tk.Label(
             coord_frame,
             text="TOP-LEFT:",
@@ -186,10 +188,8 @@ class RaptorDashboard:
             fg="#ffffff",
             font=("Courier", 9, "bold"),
         ).grid(row=0, column=0, sticky=tk.W, padx=5)
-
         self.tl_lat = tk.StringVar(value="36.4074")
         self.tl_lon = tk.StringVar(value="-105.5731")
-
         tk.Entry(
             coord_frame,
             textvariable=self.tl_lat,
@@ -206,8 +206,6 @@ class RaptorDashboard:
             fg="#00ff41",
             font=("Courier", 9),
         ).grid(row=0, column=2, padx=2)
-
-        # Bottom-right coordinates
         tk.Label(
             coord_frame,
             text="BOTTOM-RIGHT:",
@@ -215,10 +213,8 @@ class RaptorDashboard:
             fg="#ffffff",
             font=("Courier", 9, "bold"),
         ).grid(row=0, column=3, sticky=tk.W, padx=(20, 5))
-
         self.br_lat = tk.StringVar(value="36.4044")
         self.br_lon = tk.StringVar(value="-105.5700")
-
         tk.Entry(
             coord_frame,
             textvariable=self.br_lat,
@@ -236,7 +232,29 @@ class RaptorDashboard:
             font=("Courier", 9),
         ).grid(row=0, column=5, padx=2)
 
-        # File selection and processing controls
+        # --- NEW: Model Selection Dropdown ---
+        model_selection_frame = tk.LabelFrame(
+            top_row_frame,
+            text="DETECTION MODEL",
+            bg="#2a2a2a",
+            fg="#00ff41",
+            font=("Arial", 10, "bold"),
+        )
+        model_selection_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=(10, 0))
+
+        self.selected_model_name = tk.StringVar()
+        model_dropdown = ttk.Combobox(
+            model_selection_frame,
+            textvariable=self.selected_model_name,
+            values=list(config.MODELS.keys()),
+            state="readonly",
+            width=35,
+            font=("Arial", 10),
+        )
+        model_dropdown.pack(padx=10, pady=10)
+        model_dropdown.current(0)  # Set default to the first model
+
+        # --- Bottom Row: File selection and processing controls ---
         file_frame = tk.Frame(control_frame, bg="#2a2a2a")
         file_frame.pack(fill=tk.X, pady=(10, 0))
 
@@ -249,29 +267,26 @@ class RaptorDashboard:
             fg="#ffffff",
             font=("Courier", 10),
         )
-        file_entry.pack(side=tk.LEFT, padx=(0, 10))
+        file_entry.pack(side=tk.LEFT, padx=(0, 10), expand=True, fill=tk.X)
 
         ttk.Button(
             file_frame,
-            text="📁 BROWSE VIDEO",
+            text="📁 BROWSE",
             command=self.browse_file,
             style="Tactical.TButton",
         ).pack(side=tk.LEFT, padx=(0, 10))
-
         ttk.Button(
             file_frame,
-            text="📷 START LIVE FEED",
+            text="📷 LIVE FEED",
             command=self.start_live_feed,
             style="Tactical.TButton",
         ).pack(side=tk.LEFT, padx=(0, 10))
-
         ttk.Button(
             file_frame,
-            text="▶️ START MISSION",
+            text="▶️ MISSION",
             command=self.start_processing,
             style="Tactical.TButton",
         ).pack(side=tk.LEFT, padx=(0, 10))
-
         ttk.Button(
             file_frame,
             text="⏹️ ABORT",
@@ -575,12 +590,27 @@ LIVE FEATURES:
         # Start live processing in a separate thread
         threading.Thread(target=self.process_live_thread, daemon=True).start()
 
+    # In src/dashboard.py, find and replace these two methods:
+
     def process_live_thread(self):
         """Process the live feed in a separate thread."""
         try:
-            # Initialize processor for live feed.
+            # --- THIS IS THE FIX ---
+            # 1. Get the user-friendly model name from the dropdown.
+            selected_model_key = self.selected_model_name.get()
+            if not selected_model_key:
+                # This should not happen if the dropdown has a default.
+                self.root.after(
+                    0, self.processing_error, "No model selected from dropdown."
+                )
+                return
+
+            # 2. Look up the actual file path in our config.
+            model_path = config.MODELS[selected_model_key]
+
+            # 3. Initialize the processor with the CHOSEN model path.
             self.processor = RaptorProcessor(
-                gps_bounds=None, gui_queue=self.video_queue
+                model_path=model_path, gps_bounds=None, gui_queue=self.video_queue
             )
 
             # Process the live stream (camera 0). This will loop until stop() is called.
@@ -595,9 +625,21 @@ LIVE FEATURES:
     def process_video_thread(self, video_path, bounds):
         """Process video in separate thread with live display"""
         try:
-            # Initialize processor
+            # --- THIS IS THE FIX ---
+            # 1. Get the user-friendly model name from the dropdown.
+            selected_model_key = self.selected_model_name.get()
+            if not selected_model_key:
+                self.root.after(
+                    0, self.processing_error, "No model selected from dropdown."
+                )
+                return
+
+            # 2. Look up the actual file path in our config.
+            model_path = config.MODELS[selected_model_key]
+
+            # 3. Initialize processor with the CHOSEN model path.
             self.processor = RaptorProcessor(
-                gps_bounds=bounds, gui_queue=self.video_queue
+                model_path=model_path, gps_bounds=bounds, gui_queue=self.video_queue
             )
 
             # Create output video path
@@ -605,9 +647,7 @@ LIVE FEATURES:
             output_path = f"output/videos/raptor_mission_{timestamp}.mp4"
 
             # Process video with live updates
-            detections = self.processor.process_video_live(
-                video_path, output_path, process_every_n_frames=3
-            )
+            detections = self.processor.process_video(video_path, output_path)
 
             # Store processed video path
             self.processed_video_path = output_path

@@ -23,3 +23,8 @@ RAPTOR_CLASS_COLORS = {
     "ship": (0, 255, 255),  # Yellow
     "structure": (128, 128, 128),  # Grey
 }
+
+MODELS = {
+    "Aerial Mode (R.A.P.T.O.R. v1)": "models/raptor_v1.pt",
+    "Ground Mode (Default YOLOv8n)": "models/raptor_v0.pt",
+}

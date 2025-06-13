@@ -9,7 +9,7 @@ import sys
 # Add src directory to path for imports
 sys.path.append(str(Path(__file__).parent))
 
-from core_processor import RaptorProcessor
+from .core_processor import RaptorProcessor
 
 
 def main():
