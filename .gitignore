@@ -1,9 +1,4 @@
-﻿# AI model files  
-*.pt
-*.pth
-models/
-
-# Cache files
+﻿# Cache files
 __pycache__/
 *.pyc
 
