@@ -1,4 +1,4 @@
-# R.A.P.T.O.R QGIS Mapper Module - FIXED VERSION
+# R.A.P.T.O.R QGIS Mapper Module - MULTI-OBJECT FIX
 # File: src/qgis_mapper.py
 
 import sys
@@ -40,10 +40,7 @@ except ImportError:
 class TacticalQGISMapper:
     def __init__(self):
         """R.A.P.T.O.R QGIS Integration and Mapping System"""
-        # --- THIS IS THE FIX ---
-        # The global declaration must come BEFORE any use of the variable.
         global QGIS_AVAILABLE
-        # -----------------------
 
         self.detections = []
         self.layers = {}
@@ -63,32 +60,79 @@ class TacticalQGISMapper:
                 print("✅ QGIS initialized successfully!")
             except Exception as e:
                 print(f"⚠️ QGIS initialization failed: {e}")
-                QGIS_AVAILABLE = False  # This line is now safe.
+                QGIS_AVAILABLE = False
 
-        # Class styling for different object types
+        # EXPANDED class styling for more object types including small_vehicle
         self.class_styles = {
             "person": {"color": "#00ff41", "size": 8, "symbol": "circle"},
             "car": {"color": "#0080ff", "size": 6, "symbol": "square"},
             "truck": {"color": "#ff4444", "size": 10, "symbol": "triangle"},
             "bus": {"color": "#ffaa00", "size": 12, "symbol": "diamond"},
             "motorcycle": {"color": "#ff00ff", "size": 5, "symbol": "star"},
+            "small_vehicle": {"color": "#00ffff", "size": 7, "symbol": "square"},  # Added small_vehicle
+            "vehicle": {"color": "#4080ff", "size": 8, "symbol": "square"},
+            "bicycle": {"color": "#80ff80", "size": 5, "symbol": "circle"},
             "bird": {"color": "#ffff00", "size": 4, "symbol": "circle"},
             "cat": {"color": "#ff69b4", "size": 4, "symbol": "circle"},
             "dog": {"color": "#8b4513", "size": 5, "symbol": "circle"},
+            "animal": {"color": "#ffa500", "size": 5, "symbol": "circle"},
+            "object": {"color": "#ffffff", "size": 5, "symbol": "circle"},  # Default for unknown objects
         }
 
     def load_detections(self, json_file):
-        """Load detections from JSON file"""
+        """Load detections from JSON file with improved filtering"""
         try:
             with open(json_file, "r") as f:
                 self.detections = json.load(f)
 
-            # Filter only detections with GPS
-            self.detections = [d for d in self.detections if "gps" in d and d["gps"]]
-            print(f"✅ Loaded {len(self.detections)} detections with GPS coordinates")
-            return True
+            print(f"📊 Total detections loaded: {len(self.detections)}")
+            
+            # Debug: Show what we have before filtering
+            if self.detections:
+                classes_found = set(d.get("class", "unknown") for d in self.detections)
+                print(f"🎯 Object classes found: {', '.join(sorted(classes_found))}")
+                
+                # Check GPS data
+                with_gps = [d for d in self.detections if "gps" in d and d["gps"] and 
+                           isinstance(d["gps"], dict) and "lat" in d["gps"] and "lon" in d["gps"]]
+                without_gps = [d for d in self.detections if not ("gps" in d and d["gps"] and 
+                              isinstance(d["gps"], dict) and "lat" in d["gps"] and "lon" in d["gps"])]
+                
+                print(f"🗺️ Detections with GPS: {len(with_gps)}")
+                print(f"❌ Detections without GPS: {len(without_gps)}")
+                
+                if without_gps:
+                    print("🔍 Sample detection without GPS:")
+                    print(f"   {without_gps[0]}")
+
+            # Filter only detections with valid GPS coordinates
+            self.detections = [
+                d for d in self.detections 
+                if "gps" in d and d["gps"] and isinstance(d["gps"], dict) and 
+                   "lat" in d["gps"] and "lon" in d["gps"] and 
+                   d["gps"]["lat"] is not None and d["gps"]["lon"] is not None
+            ]
+            
+            # Final stats
+            if self.detections:
+                final_classes = {}
+                for d in self.detections:
+                    cls = d.get("class", "unknown")
+                    final_classes[cls] = final_classes.get(cls, 0) + 1
+                
+                print(f"✅ Loaded {len(self.detections)} detections with valid GPS coordinates")
+                print("📋 Final breakdown by class:")
+                for cls, count in sorted(final_classes.items()):
+                    print(f"   {cls}: {count}")
+            else:
+                print("⚠️ No detections with valid GPS coordinates found!")
+                
+            return len(self.detections) > 0
+            
         except Exception as e:
             print(f"❌ Failed to load detections: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
     def create_shapefile_layers(self, output_dir="output/maps/shapefiles"):
@@ -101,10 +145,12 @@ class TacticalQGISMapper:
 
         # Group detections by class
         df = pd.DataFrame(self.detections)
+        print(f"🔄 Processing {len(df)} detections for shapefiles")
 
         created_files = []
         for object_class in df["class"].unique():
             class_detections = df[df["class"] == object_class]
+            print(f"📁 Creating shapefile for {object_class}: {len(class_detections)} detections")
 
             # Create shapefile
             shapefile_path = os.path.join(output_dir, f"{object_class}_detections.shp")
@@ -203,7 +249,7 @@ class TacticalQGISMapper:
             return
 
         try:
-            style = self.class_styles.get(object_class, {"color": "black", "size": 6})
+            style = self.class_styles.get(object_class, {"color": "#ffffff", "size": 6})
 
             # Get the renderer
             symbol = layer.renderer().symbol()
@@ -258,12 +304,15 @@ class TacticalQGISMapper:
     def create_qgis_layers(self):
         """Create QGIS layers for each detection class"""
         if not self.detections:
+            print("⚠️ No detections available for QGIS layers")
             return
 
         df = pd.DataFrame(self.detections)
+        print(f"🔄 Creating QGIS layers from {len(df)} detections")
 
         for object_class in df["class"].unique():
             class_detections = df[df["class"] == object_class]
+            print(f"🎯 Creating layer for {object_class}: {len(class_detections)} detections")
 
             # Create memory layer
             layer = QgsVectorLayer(
@@ -276,27 +325,34 @@ class TacticalQGISMapper:
             features = []
 
             for idx, detection in class_detections.iterrows():
-                feature = QgsFeature()
-                point = QgsGeometry.fromPointXY(
-                    QgsPointXY(detection["gps"]["lon"], detection["gps"]["lat"])
-                )
-                feature.setGeometry(point)
-                feature.setAttributes(
-                    [idx, detection["confidence"], detection["timestamp"]]
-                )
-                features.append(feature)
+                try:
+                    feature = QgsFeature()
+                    point = QgsGeometry.fromPointXY(
+                        QgsPointXY(detection["gps"]["lon"], detection["gps"]["lat"])
+                    )
+                    feature.setGeometry(point)
+                    feature.setAttributes(
+                        [idx, detection["confidence"], detection["timestamp"]]
+                    )
+                    features.append(feature)
+                except Exception as e:
+                    print(f"⚠️ Error creating feature for {object_class}: {e}")
+                    continue
 
-            provider.addFeatures(features)
-            layer.updateExtents()
+            if features:
+                provider.addFeatures(features)
+                layer.updateExtents()
 
-            # Style layer
-            self.style_layer(layer, object_class)
+                # Style layer
+                self.style_layer(layer, object_class)
 
-            # Add to project
-            self.project.addMapLayer(layer)
-            self.layers[object_class] = layer
+                # Add to project
+                self.project.addMapLayer(layer)
+                self.layers[object_class] = layer
 
-            print(f"✅ Created layer: {object_class} ({len(class_detections)} points)")
+                print(f"✅ Created layer: {object_class} ({len(features)} points)")
+            else:
+                print(f"⚠️ No valid features created for {object_class}")
 
     def add_base_map(self):
         """Add OpenStreetMap base layer"""
@@ -377,6 +433,8 @@ class TacticalQGISMapper:
         """Create GeoJSON for mapping"""
         features = []
 
+        print(f"🔄 Creating GeoJSON from {len(self.detections)} detections")
+
         for i, detection in enumerate(self.detections):
             if "gps" in detection and detection["gps"]:
                 feature = {
@@ -403,7 +461,7 @@ class TacticalQGISMapper:
         try:
             with open(output_file, "w") as f:
                 json.dump(geojson, f, indent=2)
-            print(f"✅ Created GeoJSON: {output_file}")
+            print(f"✅ Created GeoJSON: {output_file} with {len(features)} features")
         except Exception as e:
             print(f"❌ GeoJSON creation failed: {e}")
 
@@ -428,7 +486,7 @@ class TacticalQGISMapper:
             df = pd.DataFrame(csv_data)
             df.to_csv(output_file, index=False)
 
-            print(f"✅ Created CSV for QGIS import: {output_file}")
+            print(f"✅ Created CSV for QGIS import: {output_file} with {len(csv_data)} records")
             print("📋 To import in QGIS:")
             print("   1. Layer → Add Layer → Add Delimited Text Layer")
             print("   2. Choose the CSV file")
@@ -439,13 +497,15 @@ class TacticalQGISMapper:
             print(f"❌ CSV creation failed: {e}")
 
     def create_web_map(self, output_file):
-        """Create interactive web map using Leaflet - FIXED VERSION"""
+        """Create interactive web map using Leaflet - MULTI-OBJECT FIXED VERSION"""
         if not self.detections:
             print("⚠️ No detections to create web map")
             return
 
         try:
-            # Calculate map center - FIXED to handle GPS data properly
+            print(f"🔄 Creating web map from {len(self.detections)} detections")
+
+            # Calculate map center
             lats = [d["gps"]["lat"] for d in self.detections if "gps" in d and d["gps"]]
             lons = [d["gps"]["lon"] for d in self.detections if "gps" in d and d["gps"]]
 
@@ -477,10 +537,31 @@ class TacticalQGISMapper:
                 cls = d["class"]
                 class_counts[cls] = class_counts.get(cls, 0) + 1
 
+            print("📊 Detection breakdown for web map:")
+            for cls, count in sorted(class_counts.items()):
+                print(f"   {cls}: {count}")
+
             # Calculate average confidence
             avg_confidence = sum(d["confidence"] for d in self.detections) / len(
                 self.detections
             )
+
+            # EXPANDED color palette for more object types
+            class_colors = {
+                'person': '#00ff41',
+                'car': '#0080ff', 
+                'truck': '#ff4444',
+                'bus': '#ffaa00',
+                'motorcycle': '#ff00ff',
+                'small_vehicle': '#00ffff',  # Cyan for small vehicles
+                'vehicle': '#4080ff',
+                'bicycle': '#80ff80',
+                'bird': '#ffff00',
+                'cat': '#ff69b4',
+                'dog': '#8b4513',
+                'animal': '#ffa500',
+                'object': '#ffffff'  # Default white for unknown objects
+            }
 
             # Create HTML content
             html_content = f"""<!DOCTYPE html>
@@ -562,6 +643,27 @@ class TacticalQGISMapper:
             background: rgba(0, 255, 65, 0.1);
             border-radius: 5px;
         }}
+        .class-breakdown {{
+            background: rgba(26, 26, 26, 0.9);
+            padding: 15px;
+            border-radius: 10px;
+            margin-top: 20px;
+            border: 1px solid #00ff41;
+        }}
+        .class-breakdown h3 {{
+            color: #00ff41;
+            margin-top: 0;
+            text-align: center;
+        }}
+        .class-item {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 5px 0;
+            padding: 5px 10px;
+            background: rgba(0, 255, 65, 0.05);
+            border-radius: 3px;
+        }}
     </style>
 </head>
 <body>
@@ -586,6 +688,25 @@ class TacticalQGISMapper:
         </div>
     </div>
     
+    <div class="class-breakdown">
+        <h3>🎯 Object Breakdown</h3>"""
+
+            # Add class breakdown
+            for cls, count in sorted(class_counts.items()):
+                percentage = (count / len(self.detections)) * 100
+                color = class_colors.get(cls, '#ffffff')
+                html_content += f"""
+        <div class="class-item">
+            <div style="display: flex; align-items: center;">
+                <div class="legend-color" style="background-color: {color}; margin-right: 10px;"></div>
+                <span>{cls.replace('_', ' ').title()}</span>
+            </div>
+            <span><strong>{count}</strong> ({percentage:.1f}%)</span>
+        </div>"""
+
+            html_content += f"""
+    </div>
+    
     <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
     <script>
         // Initialize map
@@ -598,26 +719,19 @@ class TacticalQGISMapper:
             maxZoom: 19
         }}).addTo(map);
         
-        // Define colors for each class
-        var classColors = {{
-            'person': '#00ff41',
-            'car': '#0080ff', 
-            'truck': '#ff4444',
-            'bus': '#ffaa00',
-            'motorcycle': '#ff00ff',
-            'bird': '#ffff00',
-            'cat': '#ff69b4',
-            'dog': '#8b4513'
-        }};
+        // Define colors for each class (EXPANDED)
+        var classColors = {json.dumps(class_colors)};
         
         // Detection data
         var detections = {json.dumps(js_detections)};
+        
+        console.log('Loading', detections.length, 'detections onto map');
         
         // Create marker groups for each class
         var markerGroups = {{}};
         
         // Add markers for each detection
-        detections.forEach(function(detection) {{
+        detections.forEach(function(detection, index) {{
             var color = classColors[detection.class] || '#ffffff';
             var radius = Math.max(5, detection.confidence * 15);
             
@@ -631,7 +745,7 @@ class TacticalQGISMapper:
             
             // Create popup content
             var popupContent = '<div style="color: black; font-weight: bold;">' +
-                '<h4 style="margin: 0; color: ' + color + ';">🎯 ' + detection.class.toUpperCase() + '</h4>' +
+                '<h4 style="margin: 0; color: ' + color + ';">🎯 ' + detection.class.toUpperCase().replace('_', ' ') + '</h4>' +
                 '<p><strong>Confidence:</strong> ' + (detection.confidence * 100).toFixed(1) + '%</p>' +
                 '<p><strong>GPS:</strong> ' + detection.lat.toFixed(6) + ', ' + detection.lon.toFixed(6) + '</p>' +
                 '<p><strong>Time:</strong> ' + new Date(detection.timestamp).toLocaleString() + '</p>';
@@ -647,19 +761,24 @@ class TacticalQGISMapper:
             // Add to appropriate group
             if (!markerGroups[detection.class]) {{
                 markerGroups[detection.class] = L.layerGroup();
+                console.log('Created new layer group for:', detection.class);
             }}
             markerGroups[detection.class].addLayer(marker);
         }});
         
+        console.log('Created marker groups:', Object.keys(markerGroups));
+        
         // Add all marker groups to map
         Object.keys(markerGroups).forEach(function(className) {{
             markerGroups[className].addTo(map);
+            console.log('Added layer group to map:', className, 'with', markerGroups[className].getLayers().length, 'markers');
         }});
         
         // Add layer control
         var overlayMaps = {{}};
         Object.keys(markerGroups).forEach(function(className) {{
-            overlayMaps[className.charAt(0).toUpperCase() + className.slice(1)] = markerGroups[className];
+            var displayName = className.charAt(0).toUpperCase() + className.slice(1).replace('_', ' ');
+            overlayMaps[displayName + ' (' + markerGroups[className].getLayers().length + ')'] = markerGroups[className];
         }});
         
         L.control.layers(null, overlayMaps).addTo(map);
@@ -673,10 +792,11 @@ class TacticalQGISMapper:
             Object.keys(classColors).forEach(function(className) {{
                 if (markerGroups[className] && markerGroups[className].getLayers().length > 0) {{
                     var count = markerGroups[className].getLayers().length;
+                    var displayName = className.charAt(0).toUpperCase() + className.slice(1).replace('_', ' ');
                     div.innerHTML += 
                         '<div class="legend-item">' +
                         '<div class="legend-color" style="background-color:' + classColors[className] + ';"></div>' +
-                        className.charAt(0).toUpperCase() + className.slice(1) + ' (' + count + ')' +
+                        displayName + ' (' + count + ')' +
                         '</div>';
                 }}
             }});
@@ -687,9 +807,24 @@ class TacticalQGISMapper:
         
         // Fit map to show all markers
         if (detections.length > 0) {{
-            var group = new L.featureGroup(Object.values(markerGroups).map(function(g) {{ return g.getLayers(); }}).flat());
-            map.fitBounds(group.getBounds().pad(0.1));
+            var allMarkers = [];
+            Object.values(markerGroups).forEach(function(group) {{
+                allMarkers = allMarkers.concat(group.getLayers());
+            }});
+            
+            if (allMarkers.length > 0) {{
+                var group = new L.featureGroup(allMarkers);
+                map.fitBounds(group.getBounds().pad(0.1));
+            }}
         }}
+        
+        // Debug output
+        console.log('Map initialization complete');
+        console.log('Total detections plotted:', detections.length);
+        console.log('Marker groups created:', Object.keys(markerGroups));
+        Object.keys(markerGroups).forEach(function(className) {{
+            console.log('  -', className, ':', markerGroups[className].getLayers().length, 'markers');
+        }});
     </script>
 </body>
 </html>"""
@@ -698,11 +833,11 @@ class TacticalQGISMapper:
             with open(output_file, "w", encoding="utf-8") as f:
                 f.write(html_content)
             print(f"✅ Created interactive web map: {output_file}")
+            print(f"📊 Plotted {len(js_detections)} detections across {len(class_counts)} object types")
 
         except Exception as e:
             print(f"❌ Web map creation failed: {e}")
             import traceback
-
             traceback.print_exc()
 
 
